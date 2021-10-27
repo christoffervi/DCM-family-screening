@@ -94,16 +94,18 @@ f1.table %>% kableExtra::kbl()%>%
   #kableExtra::save_kable("VUFFI.png")
 ```
 
-
-
+The following figure is a Sankey diagram showing the flow (outcomes) of patients according to baseline findings
 ```{r}
 ########################################
-# Figure alternative
+# Figure 3
 ##########################################
 graphd <- 
   d  %>%  
+#Exclude subjects diagnosed with FDC at baseline
   filter(CM_first_visit!=1) %>% 
+#Select proper variables
   select(CM_c,Abnorm_TTE_or_ECG, genopositive_p_lp) %>% 
+#Create relevant variables for plotting/data wrangling
   mutate(genopositive = case_when(genopositive_p_lp=="Yes"~1,
                                   genopositive_p_lp=="No"~0,
                                   TRUE~NA_real_),
@@ -113,6 +115,7 @@ graphd <-
                            Abnorm_TTE_or_ECG==0~"Normal",
                            TRUE~NA_character_), levels = c("Normal", "G-", "G+", "Abnormal"))) %>%  
   group_by(group) %>% 
+#Summarise findings
   summarise( FDC= sum(CM_c), Healthy = sum(CM_c==0)) %>% 
   pivot_longer(cols = c(FDC, Healthy)) %>% 
   mutate(name = factor(name, levels = c("Healthy", "FDC")),
@@ -124,15 +127,18 @@ graphd <-
                             name=="Healthy"~4),
          group_color = factor(case_when(name=="FDC"~"l1",
                                         name=="Healthy"~"l2"))) %>% 
+#To avoid "empty" links
   filter(value>0)
+  
+#Create dataset for nodes
 grnodes <- data.frame( node = c(0,1,2,3,4,5), 
                        name = c("","","","","","")) %>% 
   mutate(group = factor(c("G-","Normal","Abnormal","G+","Healthy", "FDC")))
-
-grnodes
 #----------------
+#Choose colors for plot
 my_color <-  'd3.scaleOrdinal() .domain(["Normal","G-","G+","Abnormal","Healthy", "FDC","l1", "l2"]) .range(["#001959", "#184E60", "#577646", "#B28C32", "#9fbd8f", "#fca1a1", "#fdcece", "#d9d9d9"])'
 #--------------
+#Relevant size plot
 Fig3 <- sankeyNetwork(Links = graphd, Nodes = grnodes, Source = "source",
                       Target = "target", Value = "value", NodeID = "name",
                       units = "Relatives" , fontSize = 14, nodeWidth = 80, 
@@ -141,11 +147,13 @@ Fig3 <- sankeyNetwork(Links = graphd, Nodes = grnodes, Source = "source",
                       height = 600, width = 400, iterations = 400, sinksRight = T)
 
 Fig3
-
+#Save as HTML
 saveNetwork(Fig3, "Fig3.html")
 library(webshot)
+#Save as png
 webshot("Fig3.html", "VUF.png")
 
+#Bigger Sankey for improved resolution
 Fig3 <- sankeyNetwork(Links = grdf, Nodes = grnodes, Source = "source",
                       Target = "target", Value = "value", NodeID = "name",
                       units = "Relatives" , fontSize = 140, nodeWidth = 800, 
@@ -157,17 +165,19 @@ webshot("CI.html", "EHJ-HF Figure 3.png")
 ```
 
 
-**Prevalence in men and women relatives**
+**Prevalence in male and female relatives**
 ```{r}
 ###############################################---------------------------------#
 library(epiR);library(survival); library(tidyverse);library(ggtext)
 #----------------------------------#
-#Prevalence in men and women relatives- Evaluated at baseline
+# Figure 2 panel A
 #---------------------------------#
 fig2a <- 
   b %>%
+#Select relatives and exclude those diagnosed prior to date of first screening
   filter(Proband != "Y" &
            1.7 > (CM_first_visit + if_else(Ambulatory == "Acute", 1, 0, missing = 0))) %>%
+#Creating age-groups
   mutate(Agegroup = cut(
     age_baseline,
     right = TRUE,
@@ -179,7 +189,9 @@ fig2a <-
   ungroup()  %>%
   select(ncas, npop) %>%
   as.matrix() %>%
+#Computing prevalence and exact confidence intervals
   epi.conf(ctype = "prevalence", method = "exact") %>% as_tibble() %>%
+#Fuse with original data
   bind_cols(
     b %>% filter(Proband != "Y" &
                    1.7 > (
@@ -196,7 +208,8 @@ fig2a <-
       ungroup()
   )  %>%
   mutate(sur = 1 - est,
-         Sex = fct_recode(Sex, women = "F", men = "M")) %>% 
+         Sex = fct_recode(Sex, women = "F", men = "M")) %>%
+#PLOTTING
   ggplot(aes(x=Agegroup, y=est*100, group = Sex, color = Sex))+
   geom_abline(aes(intercept= sum(ncas)/sum(npop)*100, slope =0), linetype=2, color = "black")+
   geom_errorbar(aes(ymin = (est-(est-lower)/1.96) *100, ymax=(est+(upper-est)/1.96)*100), size =0.5, width = 0.3, position = position_dodge(0.5), color = "black")+
@@ -222,10 +235,11 @@ fig2a
 
 ggsave("fig2_a_EHJ-HF.png", units = "cm", width = 12, height = 8, dpi = 2000)
 ```
+**Incidence in men and women**
 
 ```{r}
 ################################################----------------------------------#
-#Prevalence in men and women relatives
+#Incidence in men and women relatives
 #Evaluated at baseline
 #################################################---------------------------------#
 spl <-
@@ -300,25 +314,6 @@ spl <-
     ylim = c(0, 108),
     clip = "off",
     expand = F
-  ) +
-  geom_richtext(
-    aes(
-      x = 1,
-      y = 35,
-      label = "Age-standardized incidence **2.0**% per year <br>
-                        <span style='font-size:11pt; color:gray'>**>250 x rate in general population**</span> <br>
-                         <span style='font-size:11pt; color:gray'>*>15 x rate of HF in 55-59 year-olds*</span>"
-    ),
-    stat = "unique",
-    angle = 30,
-    show.legend = F,
-    color = "#F9CCF9",
-    fill = "#1A3399",
-    label.color = NA,
-    hjust = 0,
-    vjust = 0,
-    size = 3,
-    family = "Playfair Display"
   )
 
 
@@ -336,7 +331,7 @@ DKstd <- matrix(data = c(2068990,1050499,1544284,1176272), nrow = 1,
 ASI <- epi.directadj(obs, tar, DKstd, units = 1, conf.level = 0.95)
 ```
 
-
+### Figure 3 
 ```{r}
 #---------------------------------------------#
 # Incidence according to objective findings
@@ -415,6 +410,10 @@ gss <-ggsurvplot(surv_fit(Surv(FU_diag, CM_c)~factor(Abnorm_TTE_or_ECG, levels =
 HR_FDC <- exp(coxph(Surv(FU_diag, CM_c)~Abnorm_TTE_or_ECG+age_baseline, data = NoGen)$coef[1])
 lwr_FDC <- round(summary(coxph(Surv(FU_diag, CM_c)~Abnorm_TTE_or_ECG+age_baseline, data = NoGen))$conf.int[5],1)
 upr_FDC <- round(summary(coxph(Surv(FU_diag, CM_c)~Abnorm_TTE_or_ECG+age_baseline, data = NoGen))$conf.int[7],1)
+
+##########################
+COMBINING PLOTS ABOVE
+#########################
 
 gss$plot <- gss$plot+
   ggplot2::annotate("text", 
