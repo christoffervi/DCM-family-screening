@@ -1,0 +1,439 @@
+---
+title: "DCM_family_EHJ-HF"
+author: "Christoffer Vissing"
+date: "26/10/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(networkD3)
+library(webshot)
+```
+
+## Family screening in DCM
+
+This document contains the data and figures for the manuscript ....
+
+### Loading data and creating variables
+```{r Data load}
+b <- read_excel("H:/01 PhD/02 Precision diagnostics/Projekt 05 - Family screening yield/DCM_fam_yield_v1.1.xlsx", 
+                sheet = "Collected", na = "NA")
+f <- read_excel("H:/01 PhD/02 Precision diagnostics/Projekt 05 - Family screening yield/DCM_fam_yield_v1.1.xlsx", 
+                sheet = "Family", na = "NA")
+```
+In the following section/chunk variables are created or altered
+```{r Variable wrangling}
+
+b <- b %>% dplyr::mutate(BMI = Kg1/(Height/100)^2,
+                         NYHA_1st = factor(NYHA_1st),
+                #ECHOVARIABLES at baseline (DILATION LVEF SO ON)
+                         dil0 = 100*(LVED0/LVED0_pred)-100, #different from predicted value
+                         Dil_0 = ifelse(dil0>12, 1,0), # LV dimensions larger than 112% predicted
+                         Dil_0_17 = ifelse(dil0>17, 1,0), # LV dimensions larger than 117% predicted
+                         LVEF0_reduced = ifelse(LVEF0<60, 1,0), #Variable if LVEF less than 60
+                #ECHOVARIABLES at end vs diagnosis
+                         delta_LVEF = LVEF2-LVEF1, #Change in LVEF from baseline/diagnosis to end of follow-up
+                         delta_LVEDi = LVEDi2-LVEDi1, #Change in indexed LVED from baseline/diagnosis to end of follow-up
+                #GENETIC VARIABLES
+                         Known_genofam = if_else(Geno_fam=="Y", "Yes", "No", missing = "Unknown"),
+                         genopositive =  if_else(Geno_pos=="Y", "Yes", "No", missing = "Unknown"),
+                         genopositive_p_lp =  if_else(Geno_pos_p_lp=="Y", "Yes", "No", missing = "Unknown"),
+                         genes = if_else(Gene=="TTN", "TTN", 
+                                  if_else(Gene=="RBM20", "RBM20", 
+                                          if_else(Gene=="LMNA", "LMNA",
+                                                  if_else(Gene=="MYH7", "MYH7",
+                                                          if_else(Gene=="DSP", "DSP", 
+                                                                  if_else(Geno_fam=="Y","Other",
+                                                                          if_else(Geno_fam=="N","Negative", "Unknown"))))))),
+                 #ECG
+                         QRS_over_120 = if_else(QRS1>120, 1, 0),# QRS >120
+                         QRS_over_110 = if_else(QRS1>110, 1, 0),# QRS >110
+                         Tinv = if_else(Tinv_Ant1+Tinv_Inf1+Tinv_Lat1>0.5, 1, 0), #T-wave inversion
+                         longQTc = if_else(Sex=="M", if_else(QTc1>470,1,0), if_else(QTc1>480,1,0)),
+                         QTc_450 = if_else(QTc1>450,1,0),
+                         Abnorm_ECGn = if_else(Tinv==1,1,0, missing = 0)+
+                           if_else(QRS_over_120==1,1,0,missing = 0)+
+                           if_else(PR1>200,1,0, missing = 0)+
+                           if_else(`2AVB1`==1,1,0, missing = 0)+
+                           if_else(`3AVB1`==1,1,0, missing = 0)+
+                           if_else(AFLI1==1,1,0, missing = 0)+
+                           if_else(longQTc==1,1,0, missing = 0),
+                         Abnorm_ECG = if_else(Abnorm_ECGn>0.5, 1,0),
+                         Abnorm_TTEn = if_else(LVEF0_reduced==1,1,0, missing = 0)+
+                           if_else(Dil_0_17==1,1,0, missing = 0),
+                         Abnorm_TTE = if_else(Abnorm_TTEn>0.5, 1,0),
+                         Abnorm_TTE_or_ECG = if_else(Abnorm_ECG+Abnorm_TTE>0.5,1,0),
+                         Abnorm_TTE_and_ECG = if_else(Abnorm_ECG+Abnorm_TTE>1.5,1,0)
+                )
+
+d<- b %>% filter(Proband!="Y")
+
+# Only relatives w/o FDC at baseline
+d3 <- filter(d, CM_first_visit==0)
+
+# Only relatives w/o FDC at baseline and who are not geno-type-neg
+d3_XGneg <- filter(d3, genopositive_p_lp!="No")
+
+#Only relatives without acute FDC at baseline
+d4 <- d %>%   mutate(dummy = if_else(d$Ambulatory=="Acute",1,0,missing = 0),
+         dummy = dummy+ CM_first_visit,
+         dummy = if_else(dummy>1.5, 0,1,missing = 1)) %>% 
+  filter(dummy==1)
+
+#MAKING GENETABLE
+f1 <- filter(f, Gene!="NA")
+f1<- filter(f1, Gene!="None")
+f1.table <- dplyr::select(f1, Gene, Gene_variant, ACMG_call, ACMG_criteria)
+f1.table <- arrange(f1.table, Gene)
+f1.table %>% kableExtra::kbl()%>%
+  kableExtra::kable_paper(full_width = TRUE) %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "condensed", "responsive")) %>%
+  kableExtra::scroll_box(width = "800px", height = "3600px") #%>%
+  #kableExtra::save_kable("VUFFI.png")
+```
+
+
+
+```{r}
+########################################
+# Figure alternative
+##########################################
+graphd <- 
+  d  %>%  
+  filter(CM_first_visit!=1) %>% 
+  select(CM_c,Abnorm_TTE_or_ECG, genopositive_p_lp) %>% 
+  mutate(genopositive = case_when(genopositive_p_lp=="Yes"~1,
+                                  genopositive_p_lp=="No"~0,
+                                  TRUE~NA_real_),
+         group = factor(case_when(genopositive==1~"G+",
+                           genopositive==0~"G-",
+                           Abnorm_TTE_or_ECG==1~"Abnormal",
+                           Abnorm_TTE_or_ECG==0~"Normal",
+                           TRUE~NA_character_), levels = c("Normal", "G-", "G+", "Abnormal"))) %>%  
+  group_by(group) %>% 
+  summarise( FDC= sum(CM_c), Healthy = sum(CM_c==0)) %>% 
+  pivot_longer(cols = c(FDC, Healthy)) %>% 
+  mutate(name = factor(name, levels = c("Healthy", "FDC")),
+         source = case_when(group=="G-"~0,
+                            group=="Normal"~1,
+                            group=="Abnormal"~2,
+                            group=="G+"~3),
+         target = case_when(name=="FDC"~5,
+                            name=="Healthy"~4),
+         group_color = factor(case_when(name=="FDC"~"l1",
+                                        name=="Healthy"~"l2"))) %>% 
+  filter(value>0)
+grnodes <- data.frame( node = c(0,1,2,3,4,5), 
+                       name = c("","","","","","")) %>% 
+  mutate(group = factor(c("G-","Normal","Abnormal","G+","Healthy", "FDC")))
+
+grnodes
+#----------------
+my_color <-  'd3.scaleOrdinal() .domain(["Normal","G-","G+","Abnormal","Healthy", "FDC","l1", "l2"]) .range(["#001959", "#184E60", "#577646", "#B28C32", "#9fbd8f", "#fca1a1", "#fdcece", "#d9d9d9"])'
+#--------------
+Fig3 <- sankeyNetwork(Links = graphd, Nodes = grnodes, Source = "source",
+                      Target = "target", Value = "value", NodeID = "name",
+                      units = "Relatives" , fontSize = 14, nodeWidth = 80, 
+                      colourScale = my_color, NodeGroup = "group", LinkGroup = "group_color",
+                      nodePadding = 30, fontFamily = "sans",
+                      height = 600, width = 400, iterations = 400, sinksRight = T)
+
+Fig3
+
+saveNetwork(Fig3, "Fig3.html")
+library(webshot)
+webshot("Fig3.html", "VUF.png")
+
+Fig3 <- sankeyNetwork(Links = grdf, Nodes = grnodes, Source = "source",
+                      Target = "target", Value = "value", NodeID = "name",
+                      units = "Relatives" , fontSize = 140, nodeWidth = 800, 
+                      colourScale = my_color, NodeGroup = "group", LinkGroup = "group",
+                      nodePadding = 300, fontFamily = "sans",
+                      height = 6000, width = 4000, iterations = 400, sinksRight = TRUE)
+saveNetwork(Fig3, "CI.html")
+webshot("CI.html", "EHJ-HF Figure 3.png")
+```
+
+
+**Prevalence in men and women relatives**
+```{r}
+###############################################---------------------------------#
+library(epiR);library(survival); library(tidyverse);library(ggtext)
+#----------------------------------#
+#Prevalence in men and women relatives- Evaluated at baseline
+#---------------------------------#
+fig2a <- 
+  b %>%
+  filter(Proband != "Y" &
+           1.7 > (CM_first_visit + if_else(Ambulatory == "Acute", 1, 0, missing = 0))) %>%
+  mutate(Agegroup = cut(
+    age_baseline,
+    right = TRUE,
+    c(-Inf, 30, 45, 60, Inf),
+    labels = c("<30", "30-44", "45-59", "\u226560")
+  )) %>%
+  group_by(Sex, Agegroup) %>%
+  summarise(npop = n(), ncas = sum(CM_first_visit)) %>%
+  ungroup()  %>%
+  select(ncas, npop) %>%
+  as.matrix() %>%
+  epi.conf(ctype = "prevalence", method = "exact") %>% as_tibble() %>%
+  bind_cols(
+    b %>% filter(Proband != "Y" &
+                   1.7 > (
+                     CM_first_visit + if_else(Ambulatory == "Acute", 1, 0, missing = 0)
+                   )) %>%
+      mutate(Agegroup = cut(
+        age_baseline,
+        right = TRUE,
+        c(-Inf, 30, 45, 60, Inf),
+        labels = c("<30", "30-44", "45-59", "\u226560")
+      )) %>%
+      group_by(Sex, Agegroup) %>%
+      summarise(npop = n(), ncas = sum(CM_first_visit)) %>%
+      ungroup()
+  )  %>%
+  mutate(sur = 1 - est,
+         Sex = fct_recode(Sex, women = "F", men = "M")) %>% 
+  ggplot(aes(x=Agegroup, y=est*100, group = Sex, color = Sex))+
+  geom_abline(aes(intercept= sum(ncas)/sum(npop)*100, slope =0), linetype=2, color = "black")+
+  geom_errorbar(aes(ymin = (est-(est-lower)/1.96) *100, ymax=(est+(upper-est)/1.96)*100), size =0.5, width = 0.3, position = position_dodge(0.5), color = "black")+
+  geom_point(aes(fill= Sex), color = "black", size=3, position = position_dodge(0.5), shape =21, stroke=0.5)+
+  labs(title = expression("FDC in *a priori* unaffected relatives (*n=536*)"),
+       x = "Age")+
+  scale_y_continuous(limits = c(0,45), breaks = seq(0,80,5), name = "Prevalence (%)")+
+  theme_classic(base_size = 11, base_family = "serif")+
+  theme(plot.title =element_markdown(family = "serif", size = 13, color = "black"),
+        axis.text = element_text(family = "serif", size = 10, color = "black"),
+        axis.title = element_text(family = "serif", size = 10, color = "black"),
+        plot.caption = element_text(family = "serif", size = 6),
+        legend.position = c(0.15,0.9), legend.title = element_blank(), legend.background = element_blank(),
+        panel.grid.major.y = element_line(color = "gray89", size = .3)
+        #panel.grid.minor.y = element_line(color = "gray99")
+  )+
+  scico::scale_fill_scico_d(palette = "batlow", direction = -1)+
+  ggpubr::color_palette(palette = chris_col_pal[2:3])+
+  geom_curve(aes(x =3.5, xend = 3.7, y=12.5, yend = 17.5), color = "black", arrow = arrow(length = unit(0.02, "npc"), type = "closed"))+
+  annotate("text", x=3.3, y = 12.5, label = "Overall\n prevalence", size = 3)+
+  coord_cartesian(ylim = c(0,43), xlim = c(.4,4.6), clip = "off", expand = F)
+fig2a
+
+ggsave("fig2_a_EHJ-HF.png", units = "cm", width = 12, height = 8, dpi = 2000)
+```
+
+```{r}
+################################################----------------------------------#
+#Prevalence in men and women relatives
+#Evaluated at baseline
+#################################################---------------------------------#
+spl <-
+  as_tibble(survSplit(
+    Surv(d3$age_baseline, d3$CM_age + 0.0001, event = d3$CM_c) ~ Sex,
+    data = d3,
+    cut = c(30, 45, 60),
+    episode = "Agegroup"
+  )) %>%
+  mutate(time = tstop - tstart) %>%
+  group_by(Agegroup, Sex) %>%
+  summarise(nyear = sum(time), ncas = sum(event)) %>%
+  ungroup() %>%
+  select(ncas, nyear) %>%
+  as.matrix() %>%
+  epi.conf(ctype = "inc.rate", method = "byar") %>% 
+  bind_cols(
+    as_tibble(survSplit(Surv(d3$age_baseline, d3$CM_age + 0.0001, event = d3$CM_c) ~ Sex, data = d3,cut = c(30, 45, 60),episode = "Agegroup")) %>%mutate(time = tstop - tstart) %>% group_by(Agegroup, Sex) %>%  summarise(nyear = sum(time), ncas = sum(event)) %>% ungroup()
+  ) %>%
+  mutate(
+    sur = 1 - est,
+    Sex = fct_recode(Sex, women = "F", men = "M"),
+    Agegroup = factor(Agegroup, labels = c("<30", "30-44", "45-59", "\u226560"))
+  ) %>%
+  ggplot(aes(
+    x = Agegroup,
+    y = est * 1000,
+    group = Sex,
+    color = Sex
+  )) +
+  geom_errorbar(aes(ymin = (est - (est - lower) / 1.96) * 1000, ymax = (est + (upper - est) / 1.96) * 1000
+    ),
+    size = 0.5, width = 0.3,position = position_dodge(0.5),color = "black") +
+  geom_point(aes(fill = Sex), color = "black",size = 3, position = position_dodge(0.5), shape = 21, stroke = 0.5
+             ) +
+  labs(title = "Incidence rate in relatives w/o FDC at baseline (*n=439*)",
+       x="Age")+
+  scale_y_continuous(
+    limits = c(-0.1, 112.5),
+    breaks = seq(0, 120, 20),
+    name = "Incidence per 1,000 person-years"
+  ) +
+  theme_classic(base_size = 11, base_family = "serif") +
+  theme(
+    plot.title = element_markdown(
+      family = "serif",
+      size = 11,
+      color = "black"
+    ),
+    axis.text = element_markdown(
+      family = "serif",
+      size = 10,
+      color = "black"
+    ),
+    axis.title = element_markdown(
+      family = "serif",
+      size = 10,
+      color = "black"
+    ),
+    plot.caption = element_markdown(family = "serif", size = 10),
+    legend.position = c(0.15, 0.9),
+    legend.title = element_blank(),
+    legend.background = element_blank(),
+    panel.grid.major.y = element_line(color = "gray89", size = .3)
+    #panel.grid.minor.y = element_line(color = "gray99"))+
+  ) +
+  scale_fill_scico_d(palette = "batlow", direction = -1) +
+  scale_color_scico_d(palette = "batlow", direction = -1) +
+  
+  coord_cartesian(
+    xlim = c(0.4, 4.6),
+    ylim = c(0, 108),
+    clip = "off",
+    expand = F
+  ) +
+  geom_richtext(
+    aes(
+      x = 1,
+      y = 35,
+      label = "Age-standardized incidence **2.0**% per year <br>
+                        <span style='font-size:11pt; color:gray'>**>250 x rate in general population**</span> <br>
+                         <span style='font-size:11pt; color:gray'>*>15 x rate of HF in 55-59 year-olds*</span>"
+    ),
+    stat = "unique",
+    angle = 30,
+    show.legend = F,
+    color = "#F9CCF9",
+    fill = "#1A3399",
+    label.color = NA,
+    hjust = 0,
+    vjust = 0,
+    size = 3,
+    family = "Playfair Display"
+  )
+
+
+
+obs_tar<- 
+  spl %>%
+  select(Agegroup, Sex, ncas) %>%
+  pivot_wider(names_from = Agegroup, values_from = ncas) %>%
+  bind_rows(
+    spl %>% select(Agegroup, Sex, nyear) %>%pivot_wider(names_from = Agegroup, values_from = nyear)
+  )
+obs_tar
+DKstd <- matrix(data = c(2068990,1050499,1544284,1176272), nrow = 1, 
+                dimnames = list(c(""), c("<30", "30-44", "45-59", "\u226560")))
+ASI <- epi.directadj(obs, tar, DKstd, units = 1, conf.level = 0.95)
+```
+
+
+```{r}
+#---------------------------------------------#
+# Incidence according to objective findings
+#---------------------------------------------#
+library(ggpubr); library(survminer)
+fit1 <- Surv(NoGen$age_baseline, NoGen$CM_age+0.0001, event = NoGen$CM_c)~Abnorm_TTE_or_ECG
+spl <- survSplit(fit1, data = NoGen, cut = c(30,45,60), episode = "Agegroup") %>% 
+  mutate( time = tstop-tstart,
+          ndil = factor(Abnorm_TTE_or_ECG, labels = c("Normal", "Abnormal")),
+          Agegroup = factor(Agegroup, labels = c("<30", "30-44", "45-59", "\u226560"))) %>% 
+  group_by(Agegroup, ndil) %>% 
+  summarise(nyear = sum(time), ncas = sum(event))
+
+tmp <- as.matrix(cbind(spl$ncas, spl$nyear)) %>% 
+epi.conf(tmp, ctype = "inc.rate", method = "byar") %>% 
+  mutate(ndil = spl$ndil, Agegroup= spl$Agegroup)
+chris_col <- scico(6, palette = "batlow")[c(1,4)]
+figs <- tmp %>%  ggplot(aes(x=Agegroup, y=est*1000, group = ndil, color = ndil))+
+  geom_errorbar(aes(ymin = (est-(est-lower)/1.96)*1000, ymax=(est+(upper-est)/1.96)*1000), size =0.5, width = 0.3, 
+                position = position_dodge(0.9), color = "black")+
+  geom_point(aes(fill= ndil), color = "black", size=3, position = position_dodge(0.9), shape =21, stroke=0.5)+
+  geom_text(aes(label = round(est*1000,0)), size =3, hjust =0.7, vjust = -0.2, color="black", position = position_dodge(0.4))+
+  #geom_hline(aes(yintercept = 0), linetype = 2)+
+  #labs(title = "Familial dilated cardiomyopathy")+
+  xlab("Age")+ labs(fill="ECG & echo")+
+  scale_y_continuous(limits = c(-1,120), breaks = seq(0,120,20), name = "Incidence per\n 1,000 person-years")+
+  theme_classic(base_size = 12, base_family = "serif")+
+  theme(plot.title =element_text(family = "serif", size = 12, color = "black"),
+                                 axis.title = element_text(family = "serif", size = 12, colour = "black"),
+                                 axis.text = element_text(family = "serif", size = 12, colour = "black"),
+                                 axis.ticks = element_line(linetype = "solid"),
+                                 axis.line = element_line(),
+                                 legend.background = element_blank(),
+                                 legend.text = element_text(family = "serif", size = 10),
+                                 legend.title = element_text(family = "serif", size = 10),
+        legend.position = c(0.15,.8),
+                                 plot.background = element_blank(),
+                                 panel.background = element_blank(),
+                                 panel.grid = element_blank())+ 
+  color_palette(palette = chris_col)+  fill_palette(palette = chris_col)+
+  coord_cartesian(ylim = c(-1,115), clip = "off", expand = F)
+figs
+```
+
+```{r}
+#---------------------------------------#
+#Survival plot
+#----------------------------------------#
+
+nogen_plot <- NoGen %>% mutate(FU_diag = if_else(FU_diag>10, 10.01, FU_diag),
+                               CM_c = if_else(FU_diag>=10 & CM_c==1, 0,CM_c))
+gss <-ggsurvplot(surv_fit(Surv(FU_diag, CM_c)~factor(Abnorm_TTE_or_ECG, levels = c(0,1)), data = nogen_plot),
+                 linetype = 1, cenosr.shape = 124, censor.size =3,
+                 ylim = c(0,.61),pval = FALSE, pval.coord = c(10,0.82),
+                 fun = "event",conf.int = TRUE, conf.int.style = c("ribbon"),conf.int.alpha = 0.2,
+                 xlab = "Years of follow-up", #xlim= c(0,13.8),
+                 ylab= "Cumulative incidence\n of FDC",
+                 break.x.by = 1,
+                 break.y.by = .1,
+                 legend = c(0.15,0.8), legend.title = "ECG & echo", legend.labs = c("Normal","Abnormal"),
+                 palette = c("#001959", "#B28C32" ), 
+                 ggtheme = theme(plot.title =element_text(family = "serif", size = 12, color = "black"),
+                                 axis.title = element_text(family = "serif", size = 12, colour = "black"),
+                                 axis.text = element_text(family = "serif", size = 12, colour = "black"),
+                                 axis.ticks = element_line(linetype = "solid"),
+                                 axis.line = element_line(),
+                                 legend.background = element_blank(),
+                                 legend.text = element_text(family = "serif", size = 10),
+                                 legend.title = element_text(family = "serif", size = 10),
+                                 plot.background = element_blank(),
+                                 panel.background = element_blank(),
+                                 panel.grid = element_blank()),
+                 risk.table=TRUE, risk.table.title = "Numbers at risk", tables.y.text =TRUE, risk.table.pos = "out",
+                 tables.height = 0.2, fontsize =3, font.family = "serif",
+                 tables.theme = theme_transparent()+theme(text = element_text(family = "serif", size = 8)))
+HR_FDC <- exp(coxph(Surv(FU_diag, CM_c)~Abnorm_TTE_or_ECG+age_baseline, data = NoGen)$coef[1])
+lwr_FDC <- round(summary(coxph(Surv(FU_diag, CM_c)~Abnorm_TTE_or_ECG+age_baseline, data = NoGen))$conf.int[5],1)
+upr_FDC <- round(summary(coxph(Surv(FU_diag, CM_c)~Abnorm_TTE_or_ECG+age_baseline, data = NoGen))$conf.int[7],1)
+
+gss$plot <- gss$plot+
+  ggplot2::annotate("text", 
+                    x = 1.5, y = 0.3, # x and y coordinates of the text
+                    label = paste0( "HR=",(round(HR_FDC,1)),"\n [CI: ",lwr_FDC, " to ", upr_FDC, "]"), 
+                    size =4, family = "serif")
+grid.draw.ggsurvplot <- function(x){
+  survminer:::print.ggsurvplot(x, newpage = FALSE)
+}
+
+gss <- grid.draw.ggsurvplot(gss)
+grid.draw.ggsurvplot(gss
+                     )
+ggsave(plot = gss, filename =  "what_1.png", units = "cm", width = 12, height = 10, dpi = 1500)
+
+ggsave(plot=print(gss), filename =  "what2.png", units = "cm", width = 12, height = 8, dpi = 1500)
+library(cowplot)
+Figs <-plot_grid(figs,gss$plot, ncol = 1, labels = "AUTO")
+
+ggsave("EHJ-HF_figure4_1.png", units = "cm", width = 14, height = 14, dpi = 2000)
+
+```
