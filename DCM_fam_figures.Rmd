@@ -40,13 +40,9 @@ b <- b %>% dplyr::mutate(BMI = Kg1/(Height/100)^2,
                          Known_genofam = if_else(Geno_fam=="Y", "Yes", "No", missing = "Unknown"),
                          genopositive =  if_else(Geno_pos=="Y", "Yes", "No", missing = "Unknown"),
                          genopositive_p_lp =  if_else(Geno_pos_p_lp=="Y", "Yes", "No", missing = "Unknown"),
-                         genes = if_else(Gene=="TTN", "TTN", 
-                                  if_else(Gene=="RBM20", "RBM20", 
-                                          if_else(Gene=="LMNA", "LMNA",
-                                                  if_else(Gene=="MYH7", "MYH7",
-                                                          if_else(Gene=="DSP", "DSP", 
-                                                                  if_else(Geno_fam=="Y","Other",
-                                                                          if_else(Geno_fam=="N","Negative", "Unknown"))))))),
+                         genes = case_when(Gene %in% c("TTN","RBM20", "LMNA", "MYH7","DSP")~Gene,
+                                           Geno_fam=="Y"~"Other",
+                                           T~"Unknown"),
                  #ECG
                          QRS_over_120 = if_else(QRS1>120, 1, 0),# QRS >120
                          QRS_over_110 = if_else(QRS1>110, 1, 0),# QRS >110
