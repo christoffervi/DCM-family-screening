@@ -90,7 +90,15 @@ f1.table %>% kableExtra::kbl()%>%
   #kableExtra::save_kable("VUFFI.png")
 ```
 
-The following figure is a Sankey diagram showing the flow (outcomes) of patients according to baseline findings
+The purpose of the code is to create a Sankey network diagram to visualize the relationship between variables in a data set. The Sankey diagram is a type of flow diagram, where the width of the arrows is proportional to the flow quantity in a system. In this case, the flow is between the different categories of data.
+
+The code first filters the data set to exclude subjects diagnosed with "FDC" (dilated cardiomyopathy or hypo-kinetic non-dilated cardiomyopathy) at baseline, and then selects only the relevant variables. It then creates new variables for plotting and data wrangling.
+
+The data is then summarized by grouping the data based on the relevant categories, and pivot_longer is used to reshape the data into a long format for plotting. The code then filters the data to avoid "empty" links, which would not have any flow between the categories.
+
+Finally, the code creates a Sankey network diagram using the sankeyNetwork function from the networkD3 package in R. The diagram is based on the filtered and transformed data, and the size and color of the nodes and links can be customized. The diagram is then saved as an HTML file.
+
+The rationale behind performing these simulations is to visually represent the relationships and flow between the different categories of data, allowing for easy interpretation and analysis of the data.
 ```{r}
 ########################################
 # Figure 3
@@ -99,9 +107,13 @@ graphd <-
   d  %>%  
 #Exclude subjects diagnosed with FDC at baseline
   filter(CM_first_visit!=1) %>% 
-#Select proper variables
+#Select specific variables from the data frame using the select function, specifically the columns CM_c, Abnorm_TTE_or_ECG, and genopositive_p_lp.
+
+
+
+
   select(CM_c,Abnorm_TTE_or_ECG, genopositive_p_lp) %>% 
-#Create relevant variables for plotting/data wrangling
+#Create new variables to facilitate plotting and data wrangling. The mutate function is used to create the variables genopositive, group, FDC, Healthy, name, source, target, and group_color.
   mutate(genopositive = case_when(genopositive_p_lp=="Yes"~1,
                                   genopositive_p_lp=="No"~0,
                                   TRUE~NA_real_),
@@ -110,9 +122,11 @@ graphd <-
                            Abnorm_TTE_or_ECG==1~"Abnormal",
                            Abnorm_TTE_or_ECG==0~"Normal",
                            TRUE~NA_character_), levels = c("Normal", "G-", "G+", "Abnormal"))) %>%  
+#Group the data frame by the group variable using the group_by function.
   group_by(group) %>% 
-#Summarise findings
+#Summarize the data by counting the number of cases where CM_c is equal to 1 (FDC) or 0 (Healthy) using the summarise function.
   summarise( FDC= sum(CM_c), Healthy = sum(CM_c==0)) %>% 
+#Transform the data from a wide format to a long format using the pivot_longer function.
   pivot_longer(cols = c(FDC, Healthy)) %>% 
   mutate(name = factor(name, levels = c("Healthy", "FDC")),
          source = case_when(group=="G-"~0,
@@ -123,7 +137,7 @@ graphd <-
                             name=="Healthy"~4),
          group_color = factor(case_when(name=="FDC"~"l1",
                                         name=="Healthy"~"l2"))) %>% 
-#To avoid "empty" links
+#Filter the data to exclude "empty" links using the filter function and removing rows where the value in the value column is equal to 0.
   filter(value>0)
   
 #Create dataset for nodes
@@ -162,6 +176,8 @@ webshot("CI.html", "JACC-HF Figure 3.png")
 
 
 **Prevalence in male and female relatives**
+
+
 ```{r}
 ###############################################---------------------------------#
 library(epiR);library(survival); library(tidyverse);library(ggtext)
@@ -170,7 +186,8 @@ library(epiR);library(survival); library(tidyverse);library(ggtext)
 #---------------------------------#
 fig2a <- 
   b %>%
-#Select relatives and exclude those diagnosed prior to date of first screening
+
+# Filter relatives and exclude those diagnosed prior to date of first screening
   filter(Proband != "Y" &
            1.7 > (CM_first_visit + if_else(Ambulatory == "Acute", 1, 0, missing = 0))) %>%
 #Creating age-groups
