@@ -1,5 +1,5 @@
 ---
-title: "DCM_family_EHJ-HF"
+title: "DCM_family_JACC-HF"
 author: "Christoffer Vissing"
 date: "26/10/2021"
 output: html_document
@@ -157,7 +157,7 @@ Fig3 <- sankeyNetwork(Links = grdf, Nodes = grnodes, Source = "source",
                       nodePadding = 300, fontFamily = "sans",
                       height = 6000, width = 4000, iterations = 400, sinksRight = TRUE)
 saveNetwork(Fig3, "CI.html")
-webshot("CI.html", "EHJ-HF Figure 3.png")
+webshot("CI.html", "JACC-HF Figure 3.png")
 ```
 
 
@@ -229,7 +229,7 @@ fig2a <-
   coord_cartesian(ylim = c(0,43), xlim = c(.4,4.6), clip = "off", expand = F)
 fig2a
 
-ggsave("fig2_a_EHJ-HF.png", units = "cm", width = 12, height = 8, dpi = 2000)
+ggsave("fig2_a_JACC-HF.png", units = "cm", width = 12, height = 8, dpi = 2000)
 ```
 **Incidence in men and women**
 
@@ -429,6 +429,6 @@ ggsave(plot=print(gss), filename =  "what2.png", units = "cm", width = 12, heigh
 library(cowplot)
 Figs <-plot_grid(figs,gss$plot, ncol = 1, labels = "AUTO")
 
-ggsave("EHJ-HF_figure4_1.png", units = "cm", width = 14, height = 14, dpi = 2000)
+ggsave("JACC-HF_figure4_1.png", units = "cm", width = 14, height = 14, dpi = 2000)
 
 ```
